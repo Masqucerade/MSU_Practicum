@@ -317,6 +317,147 @@ def by_id():
     cur.close()
     conn.close()
 
+@app.route("/search")
+def search():
+    q = request.args.get("q", "")
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        if q!="":
+            cur.execute(
+                "SELECT id, login, money_amount, card_number, status FROM users WHERE login LIKE %s", (f"%{q}%",)
+            )
+        else:
+            cur.execute(
+                "SELECT id, login, money_amount, card_number, status FROM users ORDER BY money_amount DESC LIMIT 5"
+            )
+        rows = cur.fetchall()
+
+        items_html = ""
+        for row in rows:
+            items_html += f"""
+                <li class="card-item">
+                    <b>ID:</b> {row[0]}<br>
+                    <b>Login:</b> {row[1]}<br>
+                    <b>Balance:</b> {row[2]}<br>
+                    <b>Card:</b> {row[3]}<br>
+                    <b>Status:</b> {row[4]}
+                </li>
+            """
+        if not items_html:
+            items_html = "<p>Nothing found.</p>"
+
+        return f"""
+            <!DOCTYPE html>
+            <html>
+            <head><meta charset="utf-8"><title>Search</title>{BASE_STYLE}</head>
+            <body>
+                <div class="container">
+                    <h2>Search results</h2>
+                    <ul class="card-list">{items_html}</ul>
+                    <a href="/" class="btn-back">Back to main</a>
+                </div>
+            </body>
+            </html>
+        """
+    
+    finally:
+        cur.close()
+        conn.close()
+
+@app.route("/analytics")
+def analytics():
+    target_status = request.args.get("target_status", "active")
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        cur.execute(
+            """ SELECT u.id, u.login, u.money_amount, u.status, b.bank_name 
+            FROM users u JOIN banks b ON b.user_id = u.id WHERE u.status = %s
+            AND u.money_amount > (SELECT AVG(money_amount) FROM users) """
+        ,(target_status,) )
+        rows = cur.fetchall()
+
+        items_html = ""
+        for row in rows:
+            items_html += f"""
+                <li class="card-item">
+                    <b>ID:</b> {row[0]}<br>
+                    <b>Login:</b> {row[1]}<br>
+                    <b>Balance:</b> {row[2]}<br>
+                    <b>Status:</b> {row[3]}<br>
+                    <b>Bank:</b> {row[4]}
+                </li>
+            """
+        if not items_html:
+            items_html = "<p>Nothing found.</p>"
+
+        return f"""
+            <!DOCTYPE html>
+            <html>
+            <head><meta charset="utf-8"><title>Analytics</title>{BASE_STYLE}</head>
+            <body>
+                <div class="container">
+                    <h2>Above-average balance (status = {target_status})</h2>
+                    <ul class="card-list">{items_html}</ul>
+                    <a href="/" class="btn-back">Back to main</a>
+                </div>
+            </body>
+            </html>
+        """
+    finally:
+        cur.close()
+        conn.close()
+
+@app.route("/transfer_status")
+def transfer_status():
+    raw_ids = request.args.get("ids", "")
+    ids = [int(x) for x in raw_ids.split(",") if x.strip()]
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """ UPDATE users
+            SET status = CASE
+                WHEN status = 'active' THEN 'inactive'
+                ELSE 'active'
+            END
+            WHERE id = ANY(%s) RETURNING id, login, status
+            """, (ids,)
+        )
+        updated = cur.fetchall()
+        conn.commit()
+        items_html = ""
+        for row in updated:
+            items_html += f"""
+                <li class="card-item">
+                    <b>ID:</b> {row[0]} &nbsp;|&nbsp;
+                    <b>Login:</b> {row[1]} &nbsp;|&nbsp;
+                    <b>New status:</b> {row[2]}
+                </li>
+            """
+        if not items_html:
+            items_html = "<p>No matching users.</p>"
+
+        return f"""
+            <!DOCTYPE html>
+            <html>
+            <head><meta charset="utf-8"><title>Transfer Status</title>{BASE_STYLE}</head>
+            <body>
+                <div class="container">
+                    <h2>Status flipped for {len(updated)} user(s)</h2>
+                    <ul class="card-list">{items_html}</ul>
+                    <a href="/" class="btn-back">Back to main</a>
+                </div>
+            </body>
+            </html>
+        """
+    finally:
+        cur.close()
+        conn.close()
 
 if __name__ == "__main__":
   app.run(host="0.0.0.0", port=5000)
